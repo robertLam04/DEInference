@@ -56,20 +56,9 @@ pub mod knowledge_manager {
         Ok(())
     }
 
-    pub fn close_account(ctx: Context<CloseAccount>) -> Result<()> {
-        let account_to_close = &mut ctx.accounts.program_state;
-        let lamports = **account_to_close.to_account_info().lamports.borrow();
-        **ctx.accounts.receiver.to_account_info().lamports.borrow_mut() += lamports;
-        **account_to_close.to_account_info().lamports.borrow_mut() = 0;
+    pub fn close_state_account(ctx: Context<CloseStateAccount>) -> Result<()> {
+        instructions::close_state_account(ctx)?;
         Ok(())
     }
 }
-
-#[derive(Accounts)]
-    pub struct CloseAccount<'info> {
-        #[account(mut, close = receiver)]
-        pub program_state: Account<'info, ProgramState>,
-        #[account(mut)]
-        pub receiver: Signer<'info>,
-    }
 

@@ -1,6 +1,6 @@
-use anchor_lang::prelude::*;
+use anchor_lang::{accounts::program, prelude::*};
 use mpl_bubblegum::instructions::CreateTreeConfigCpiBuilder;
-use crate::{Noop, MplBubblegum, SplAccountCompression};
+use crate::{Noop, MplBubblegum, SplAccountCompression, ProgramState, TreeInfo};
 
 #[derive(Accounts)]
 pub struct CreateTree<'info> {
@@ -22,6 +22,14 @@ pub struct CreateTree<'info> {
     )]
     /// CHECK: This account used as a signing PDA only
     pub tree_owner: UncheckedAccount<'info>,
+
+    #[account(
+        mut,
+        seeds = [b"knowledge"],
+        bump
+    )]
+    pub program_state: Account<'info, ProgramState>,
+
     pub mpl_bubblegum_program: Program<'info, MplBubblegum>,
     pub log_wrapper: Program<'info, Noop>,
     pub compression_program: Program<'info, SplAccountCompression>,
@@ -43,7 +51,23 @@ pub fn create_tree(ctx: Context<CreateTree>, max_depth: u32, max_buffer_size: u3
             b"tree_owner",
             ctx.accounts.tree.key().as_ref(),
             &[ctx.bumps.tree_owner]
-        ]])?;
+        ]]
+    )?;
+
+    // Update pda state account:
+
+    let program_state = &mut ctx.accounts.program_state;
+
+    let tree_address = *ctx.accounts.tree.key;
+    let tree_config = *ctx.accounts.tree_config.key;
+    
+    let new_tree = TreeInfo {
+        tree_address,
+        tree_config,
+    };
+
+    program_state.trees.push(new_tree);
+    program_state.tree_count += 1;
 
     Ok(())
 }

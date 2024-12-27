@@ -3,7 +3,8 @@ import { Program } from "@coral-xyz/anchor";
 import { KnowledgeManager } from "../target/types/knowledge_manager";
 import {
   findTreeConfigPda,
-  findLeafAssetIdPda
+  findLeafAssetIdPda,
+  MPL_BUBBLEGUM_PROGRAM_ID
 } from '@metaplex-foundation/mpl-bubblegum';
 import { assertAccountExists, Umi, PublicKey as UmiPK } from '@metaplex-foundation/umi';
 import { createUmi } from '@metaplex-foundation/umi-bundle-defaults';
@@ -13,10 +14,12 @@ import { assert } from "chai";
 import { ChangeLogEventV1, ConcurrentMerkleTreeAccount, createAllocTreeIx, deserializeChangeLogEventV1, ValidDepthSizePair } from "@solana/spl-account-compression";
 import { bs58 } from "@coral-xyz/anchor/dist/cjs/utils/bytes";
 import { rpc } from "@coral-xyz/anchor/dist/cjs/utils";
+import { base58 } from "@metaplex-foundation/umi/serializers";
 
 describe("knowledge-manager", () => {
   
   let programStateAccountInfo;
+  let programStateData;
   let treeAccount: ConcurrentMerkleTreeAccount;
 
   // Configure the client to use the local cluster.
@@ -49,9 +52,12 @@ describe("knowledge-manager", () => {
   );
 
   // Derive tree config account pda (owned by bubblegum program)
-  const treeConfig = findTreeConfigPda(umi, {
-    merkleTree: tree.publicKey.toBase58() as UmiPK,
-  });
+  let [treeConfig, __bump] = PublicKey.findProgramAddressSync(
+      [tree.publicKey.toBuffer()], // Same seed as in the Rust program
+      new PublicKey(MPL_BUBBLEGUM_PROGRAM_ID)
+  );
+
+  console.log("Tree config:", treeConfig);
 
   // Define tree attributes
   const maxDepthSizePair: ValidDepthSizePair = {
@@ -62,7 +68,7 @@ describe("knowledge-manager", () => {
 
   before(async () => {
     // Close pda state account
-    const closeTx = await program.methods.closeAccount()
+    const closeTx = await program.methods.closeStateAccount()
     .accounts({
       programState: programStatePda,
       receiver: wallet.payer.publicKey
@@ -103,6 +109,7 @@ describe("knowledge-manager", () => {
 
     // Fetch the tree_state account
     programStateAccountInfo = await provider.connection.getAccountInfo(programStatePda);
+    programStateData = await program.account.programState.fetch(programStatePda);
 
     assert.strictEqual(
       programStateAccountInfo.owner.toString(),
@@ -111,8 +118,13 @@ describe("knowledge-manager", () => {
     );
 
     assert.strictEqual(
+      programStateData.creator.toString(),
+      "2gUrmvYsLTpXB5VwjP2ZpXD4kY4HWRP89aDzQQ7TKbwh",
+      "unexpected creator");
+
+    assert.strictEqual(
       programStateAccountInfo.data.length,
-      74, // Allocated size for TreeState
+      46 + 2 * 64, // space = account disc (8) + pubkey (32) + vec size (4) + tree count (2) + max_#_trees * tree info (64)
       "tree_state account data size is incorrect"
     );
   });
@@ -124,7 +136,7 @@ describe("knowledge-manager", () => {
     // Do not pass accounts that are automatically resolved
     .accounts({
       tree: tree.publicKey,
-      treeConfig: treeConfig[0],
+      treeConfig: treeConfig,
       payer: wallet.publicKey,
     }).signers([wallet.payer])
     .rpc({ commitment: 'confirmed'});
@@ -142,6 +154,12 @@ describe("knowledge-manager", () => {
     assert.ok(programStateAccountInfo, "Program state account should be initialized before creating tree"); 
     assert.strictEqual(treeAccount.getMaxDepth(), maxDepthSizePair.maxDepth, "Unexpected max depth");
     assert.strictEqual(treeAccount.getMaxBufferSize(), maxDepthSizePair.maxBufferSize, "Unexepected max buffer size");
+    
+    programStateData = await program.account.programState.fetch(programStatePda);
+    assert.strictEqual(
+      programStateData.treeCount,
+      1,
+      "Unexpected number of merkle trees");
 
   });
 
@@ -161,7 +179,7 @@ describe("knowledge-manager", () => {
     .accounts({
       payer: wallet.publicKey,
       tree: tree.publicKey,
-      treeAuth: treeConfig[0],
+      treeAuth: treeConfig,
       leafOwner: leafOwner.publicKey
     }).signers([wallet.payer]).rpc({ commitment: 'confirmed'});
 
@@ -188,12 +206,26 @@ describe("knowledge-manager", () => {
 
     const [assetId, bump] = await findLeafAssetIdPda(umi, {
       merkleTree: tree.publicKey.toBase58() as UmiPK,
-      leafIndex,
+      leafIndex: leafIndex,
     });
 
     console.log("Leaf Index:", leafIndex);
     console.log("Tree pk:", tree.publicKey.toBase58())
 
+    const confirmTransaction = async (signature) => {
+      const latestBlockHash = await connection.getLatestBlockhash();
+      const lastValidBlockHeight = latestBlockHash.lastValidBlockHeight;
+
+      const confirmationStrategy: TransactionConfirmationStrategy = {
+        signature: signature,
+        blockhash: latestBlockHash.blockhash,
+        lastValidBlockHeight: lastValidBlockHeight
+      }
+
+      return await connection.confirmTransaction(confirmationStrategy, 'finalized');
+    }
+
+    await confirmTransaction(tx);
     const rpcAsset = await umi.rpc.getAsset(assetId);
 
     console.log("NFT Name:", rpcAsset.content.metadata.name);
