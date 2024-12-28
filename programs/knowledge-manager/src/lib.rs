@@ -1,5 +1,6 @@
 use anchor_lang::prelude::*;
 use mpl_bubblegum::programs::{MPL_BUBBLEGUM_ID, SPL_ACCOUNT_COMPRESSION_ID, SPL_NOOP_ID};
+use mpl_token_metadata::programs::MPL_TOKEN_METADATA_ID;
 use crate::instructions::*;
 mod instructions;
 
@@ -32,6 +33,15 @@ impl anchor_lang::Id for MplBubblegum {
     }
 }
 
+#[derive(Clone)]
+pub struct Metadata;
+
+impl anchor_lang::Id for Metadata {
+    fn id() -> Pubkey {
+        MPL_TOKEN_METADATA_ID
+    }
+}
+
 #[program]
 pub mod knowledge_manager {
     use super::*;
@@ -46,7 +56,8 @@ pub mod knowledge_manager {
         Ok(())
     }
 
-    pub fn mint(ctx: Context<Mint>,
+    pub fn mint(
+        ctx: Context<Mint>,
         name: String,
         symbol: String,
         uri: String,
@@ -56,20 +67,21 @@ pub mod knowledge_manager {
         Ok(())
     }
 
-    pub fn close_account(ctx: Context<CloseAccount>) -> Result<()> {
-        let account_to_close = &mut ctx.accounts.program_state;
-        let lamports = **account_to_close.to_account_info().lamports.borrow();
-        **ctx.accounts.receiver.to_account_info().lamports.borrow_mut() += lamports;
-        **account_to_close.to_account_info().lamports.borrow_mut() = 0;
+    pub fn mint_to_collection(
+        ctx: Context<MintToCollection>,
+        name: String,
+        symbol: String,
+        uri: String,
+        seller_fee_basis_points: u16
+    ) -> Result<()> {
+        instructions::mint_to_collection(ctx, name, symbol, uri, seller_fee_basis_points)?;
+        Ok(())
+    }
+
+
+    pub fn close_state_account(ctx: Context<CloseStateAccount>) -> Result<()> {
+        instructions::close_state_account(ctx)?;
         Ok(())
     }
 }
-
-#[derive(Accounts)]
-    pub struct CloseAccount<'info> {
-        #[account(mut, close = receiver)]
-        pub program_state: Account<'info, ProgramState>,
-        #[account(mut)]
-        pub receiver: Signer<'info>,
-    }
 
