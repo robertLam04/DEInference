@@ -1,6 +1,6 @@
-use anchor_lang::{accounts::program, prelude::*};
+use anchor_lang::prelude::*;
 use mpl_bubblegum::instructions::CreateTreeConfigCpiBuilder;
-use crate::{Noop, MplBubblegum, SplAccountCompression, ProgramState, TreeInfo};
+use crate::{Noop, MplBubblegum, SplAccountCompression, state::ProgramState, state::TreeInfo};
 
 #[derive(Accounts)]
 pub struct CreateTree<'info> {

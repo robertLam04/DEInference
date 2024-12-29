@@ -1,24 +1,12 @@
 use anchor_lang::prelude::*;
 use std::str::FromStr;
-
-#[account]
-pub struct ProgramState {
-    pub creator: Pubkey, // Program's authority
-    pub tree_count: u16,
-    pub trees: Vec<TreeInfo>
-}
-
-#[derive(AnchorSerialize, AnchorDeserialize, Clone)]
-pub struct TreeInfo {
-    pub tree_address: Pubkey, // Address of the Merkle tree account
-    pub tree_config: Pubkey,  // Associated tree configuration pda
-}
+use crate::state::{ProgramState};
 
 #[derive(Accounts)]
 pub struct Initialize<'info> {
-    // space = account disc (8) + pubkey (32) + vec size (4) + tree count (2) + max_trees * tree info (64)
+    // space = account disc (8) + pubkey (32) + vec size (4) + tree_count (2) + max_trees (1) * tree info (64)
     #[account(
-        init, payer = payer, space = 46 + 2 * 64, seeds = [b"knowledge"], bump
+        init, payer = payer, space = 46 + 1 * 64, seeds = [b"knowledge"], bump
     )]
     pub program_state: Account<'info, ProgramState>,
 

@@ -1,5 +1,5 @@
 use anchor_lang::prelude::*;
-use crate::ProgramState;
+use crate::state::ProgramState;
 
 #[derive(Accounts)]
 pub struct CloseStateAccount<'info> {
