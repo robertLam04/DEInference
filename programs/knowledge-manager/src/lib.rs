@@ -3,6 +3,7 @@ use mpl_bubblegum::programs::{MPL_BUBBLEGUM_ID, SPL_ACCOUNT_COMPRESSION_ID, SPL_
 use mpl_token_metadata::programs::MPL_TOKEN_METADATA_ID;
 use crate::instructions::*;
 mod instructions;
+mod state;
 
 declare_id!("3zp1SJ5F93JvofRoFWmHf7k8ih3zGMpDLf7ftZqKE742");
 
