@@ -54,8 +54,8 @@ pub fn mint_to_collection(ctx: Context<MintToCollection>, name: String,symbol: S
         .leaf_delegate(&ctx.accounts.leaf_owner.to_account_info())
         .merkle_tree(&ctx.accounts.tree.to_account_info())
         .payer(&ctx.accounts.payer.to_account_info())
-        .tree_creator_or_delegate(&&ctx.accounts.collection_authority.to_account_info())
-        .collection_authority(&&ctx.accounts.collection_authority.to_account_info())
+        .tree_creator_or_delegate(&ctx.accounts.collection_authority.to_account_info())
+        .collection_authority(&ctx.accounts.collection_authority.to_account_info())
         .collection_authority_record_pda(Some(&ctx.accounts.bubblegum_program.to_account_info()))
         .collection_mint(&ctx.accounts.collection_mint.to_account_info())
         .collection_metadata(&ctx.accounts.collection_metadata.to_account_info())
@@ -88,6 +88,9 @@ pub fn mint_to_collection(ctx: Context<MintToCollection>, name: String,symbol: S
             b"tree_owner",
             ctx.accounts.tree.key().as_ref(),
             &[ctx.bumps.collection_authority]
-        ]])?;
+    ]])?;
+
+    
+
     Ok(())
 }
