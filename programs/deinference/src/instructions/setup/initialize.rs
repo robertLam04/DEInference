@@ -1,6 +1,6 @@
 use anchor_lang::prelude::*;
 use std::str::FromStr;
-use crate::state::{ProgramState};
+use crate::state::ProgramState;
 
 #[derive(Accounts)]
 pub struct Initialize<'info> {
@@ -17,13 +17,12 @@ pub struct Initialize<'info> {
 }
 
 pub fn initialize(ctx: Context<Initialize>) -> Result<()> {
+    // Initialize program state account
     let program_state = &mut ctx.accounts.program_state;
-
     let creator_pbk_str = "2gUrmvYsLTpXB5VwjP2ZpXD4kY4HWRP89aDzQQ7TKbwh";
     let creator_pbk = Pubkey::from_str(creator_pbk_str)
         .map_err(|_| ProgramError::InvalidArgument)?;
     program_state.creator = creator_pbk;
-
     program_state.tree_count = 0;
 
     Ok(())

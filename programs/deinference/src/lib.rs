@@ -2,6 +2,7 @@ use anchor_lang::prelude::*;
 use mpl_bubblegum::programs::{MPL_BUBBLEGUM_ID, SPL_ACCOUNT_COMPRESSION_ID, SPL_NOOP_ID};
 use mpl_token_metadata::programs::MPL_TOKEN_METADATA_ID;
 use crate::instructions::*;
+use crate::instructions::setup::*;
 mod instructions;
 mod state;
 
@@ -48,12 +49,12 @@ pub mod knowledge_manager {
     use super::*;
 
     pub fn initialize(ctx: Context<Initialize>) -> Result<()> {
-        instructions::initialize(ctx)?;
+        instructions::setup::initialize(ctx)?;
         Ok(())
     }
 
     pub fn create_tree(ctx: Context<CreateTree>, max_depth: u32, max_buffer_size: u32) -> Result<()> {
-        instructions::create_tree(ctx, max_depth, max_buffer_size)?;
+        instructions::setup::create_tree(ctx, max_depth, max_buffer_size)?;
         Ok(())
     }
 
@@ -78,7 +79,6 @@ pub mod knowledge_manager {
         instructions::mint_to_collection(ctx, name, symbol, uri, seller_fee_basis_points)?;
         Ok(())
     }
-
 
     pub fn close_state_account(ctx: Context<CloseStateAccount>) -> Result<()> {
         instructions::close_state_account(ctx)?;

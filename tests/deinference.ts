@@ -6,14 +6,16 @@ import {
   findLeafAssetIdPda,
   MPL_BUBBLEGUM_PROGRAM_ID,
 } from '@metaplex-foundation/mpl-bubblegum';
-import { CreateCompressedNftOutput, keypairIdentity, Metaplex } from '@metaplex-foundation/js';
-import { assertAccountExists, Umi, PublicKey as UmiPK } from '@metaplex-foundation/umi';
+import { updateMetadataAccountV2, fetchDigitalAsset, mplTokenMetadata, createAndMint, updateAsUpdateAuthorityV2, updateV1 } from "@metaplex-foundation/mpl-token-metadata";
+import { MPL_TOKEN_METADATA_PROGRAM_ID, createNft } from '@metaplex-foundation/mpl-token-metadata';
+import { percentAmount, PublicKey as UmiPK, generateSigner, OptionOrNullable, some, signerIdentity, createSignerFromKeypair, KeypairSigner, transactionBuilder, Umi } from '@metaplex-foundation/umi';
 import { createUmi } from '@metaplex-foundation/umi-bundle-defaults';
 import { dasApi } from '@metaplex-foundation/digital-asset-standard-api';
-import { PublicKey, Keypair, TransactionConfirmationStrategy, Transaction, sendAndConfirmTransaction, TransactionSignature } from "@solana/web3.js";
+import { PublicKey, Keypair, TransactionConfirmationStrategy, Transaction, sendAndConfirmTransaction, TransactionSignature, SystemProgram } from "@solana/web3.js";
 import { assert } from "chai";
 import { ChangeLogEventV1, ConcurrentMerkleTreeAccount, createAllocTreeIx, deserializeChangeLogEventV1, ValidDepthSizePair } from "@solana/spl-account-compression";
 import { bs58 } from "@coral-xyz/anchor/dist/cjs/utils/bytes";
+import { base58, utf8 } from "@metaplex-foundation/umi/serializers";
 
 describe("knowledge-manager", () => {
 
@@ -33,6 +35,7 @@ describe("knowledge-manager", () => {
   let programStateAccountInfo;
   let programStateData;
   let treeAccount: ConcurrentMerkleTreeAccount;
+  let collection_mint: KeypairSigner;
 
   // Configure the client to use the local cluster.
   const provider = anchor.AnchorProvider.env();
@@ -42,7 +45,13 @@ describe("knowledge-manager", () => {
   const program = anchor.workspace.KnowledgeManager as Program<KnowledgeManager>;
   const connection = provider.connection;
 
-  const umi = createUmi(connection.rpcEndpoint);
+  // Setup umi
+  const umi = createUmi(connection.rpcEndpoint).use(mplTokenMetadata());
+
+  const wallet_keypair = umi.eddsa.createKeypairFromSecretKey(wallet.payer.secretKey);
+  let signer = createSignerFromKeypair(umi, wallet_keypair);
+
+  umi.use(signerIdentity(signer));
   umi.use(dasApi());
 
   // Derive the PDA (tree_state) with the same seeds as the program
@@ -55,7 +64,7 @@ describe("knowledge-manager", () => {
   const tree = Keypair.generate();
 
   // Derive tree owner account pda
-  const [treeOwner] = anchor.web3.PublicKey.findProgramAddressSync(
+  const [tree_owner] = anchor.web3.PublicKey.findProgramAddressSync(
     [
       anchor.utils.bytes.utf8.encode('tree_owner'),
       tree.publicKey.toBuffer(),
@@ -64,12 +73,12 @@ describe("knowledge-manager", () => {
   );
 
   // Derive tree config account pda (owned by bubblegum program)
-  let [treeConfig] = PublicKey.findProgramAddressSync(
+  let [tree_config] = PublicKey.findProgramAddressSync(
       [tree.publicKey.toBuffer()], // Same seed as in the Rust program
       new PublicKey(MPL_BUBBLEGUM_PROGRAM_ID)
   );
 
-  console.log("Tree config:", treeConfig);
+  console.log("Tree config:", tree_config);
 
   const [bubblegumSigner] = PublicKey.findProgramAddressSync(
     // `collection_cpi` is a custom prefix required by the Bubblegum program
@@ -97,8 +106,6 @@ describe("knowledge-manager", () => {
     name: 'TEST-COLLECTION-NFT',
     symbol: 'TCNFT'
   }
-
-  let collectionNFT: CreateCompressedNftOutput;
 
   before(async () => {
     // Close pda state account if it exists
@@ -132,23 +139,36 @@ describe("knowledge-manager", () => {
 
     console.log('Tree Address:', tree.publicKey.toBase58());
 
-    // Initialize Collection
-    const metaplex = Metaplex.make(connection).use(keypairIdentity(wallet.payer));
+    // Create collection mint
+    collection_mint = generateSigner(umi);
+    const createNftTx = await createNft(umi, {
+      mint: collection_mint,
+      sellerFeeBasisPoints: percentAmount(0),
+      name: 'TEST-COLLECTION',
+      uri: "TEST-COLLECTION-URI",
+      isCollection: true
+    }).sendAndConfirm(umi); 
+    
+    const createNftSignature = base58.deserialize(createNftTx.signature)[0];
+    console.log(`https://explorer.solana.com/tx/${createNftSignature}?cluster=devnet`)
+  
+    const metadataAddress = PublicKey.findProgramAddressSync(
+      [
+        Buffer.from("metadata", "utf8"),
+        new PublicKey(MPL_TOKEN_METADATA_PROGRAM_ID).toBuffer(),
+        new PublicKey(collection_mint.publicKey).toBuffer()
+      ],
+      new PublicKey(MPL_TOKEN_METADATA_PROGRAM_ID)
+    )[0];
 
-    collectionNFT = await metaplex.nfts().create({
-      uri: metadataCollection.uri,
-      name: metadataCollection.name,
-      symbol: metadataCollection.symbol,
-      sellerFeeBasisPoints: 0,
-      isCollection: true,
-    });
+    const updateNftUpdateAuthTx = await updateV1(umi, {
+      mint: collection_mint.publicKey,
+      authority: signer,
+      newUpdateAuthority: tree_owner.toBase58() as UmiPK
+    },).sendAndConfirm(umi);
 
-    // transfer collection nft metadata update authority to pda
-    await metaplex.nfts().update({
-      nftOrSft: collectionNFT.nft,
-      updateAuthority: wallet.payer,
-      newUpdateAuthority: treeOwner,
-    });
+    const updateNftUpdateAuthSignature = base58.deserialize(updateNftUpdateAuthTx.signature)[0];
+    console.log(`https://explorer.solana.com/tx/${updateNftUpdateAuthSignature}?cluster=devnet`)
 
   });
 
@@ -179,7 +199,7 @@ describe("knowledge-manager", () => {
 
     assert.strictEqual(
       programStateAccountInfo.data.length,
-      46 + 2 * 64, // space = account disc (8) + pubkey (32) + vec size (4) + tree count (2) + max_#_trees * tree info (64)
+      46 + 1 * 64, // space = account disc (8) + pubkey (32) + vec size (4) + tree count (2) + max_#_trees * tree info (64)
       "tree_state account data size is incorrect"
     );
   });
@@ -191,7 +211,7 @@ describe("knowledge-manager", () => {
     // Do not pass accounts that are automatically resolved
     .accounts({
       tree: tree.publicKey,
-      treeConfig: treeConfig,
+      treeConfig: tree_config,
       payer: wallet.publicKey,
     }).signers([wallet.payer])
     .rpc({ commitment: 'confirmed'});
@@ -228,7 +248,7 @@ describe("knowledge-manager", () => {
     .accounts({
       payer: wallet.publicKey,
       tree: tree.publicKey,
-      treeAuth: treeConfig,
+      treeAuth: tree_config,
       leafOwner: leafOwner.publicKey
     }).signers([wallet.payer]).rpc({ commitment: 'confirmed'});
 
@@ -270,16 +290,38 @@ describe("knowledge-manager", () => {
   });
 
   it("Mints an NFT to an existing merkle tree and collection", async () => {
+
+    const fetchedNFT = await fetchDigitalAsset(umi, collection_mint.publicKey);
+
+    const editionAccount = PublicKey.findProgramAddressSync(
+      [
+        Buffer.from('metadata', 'utf8'),
+        new PublicKey(MPL_TOKEN_METADATA_PROGRAM_ID).toBuffer(),
+        new PublicKey(fetchedNFT.publicKey).toBuffer(),
+        Buffer.from('edition', 'utf8'),
+      ],
+      new PublicKey(MPL_TOKEN_METADATA_PROGRAM_ID)
+    )[0];
+
+    const metadataAccount = PublicKey.findProgramAddressSync(
+      [
+        Buffer.from("metadata", "utf8"),
+        new PublicKey(MPL_TOKEN_METADATA_PROGRAM_ID).toBuffer(),
+        new PublicKey(collection_mint.publicKey).toBuffer(),
+      ],
+      new PublicKey(MPL_TOKEN_METADATA_PROGRAM_ID)
+    )[0];
+
     const tx = await program.methods
       .mintToCollection(metadata.name, metadata.symbol, metadata.uri, 0)
       .accounts({
-        treeAuth: treeConfig,
+        treeAuth: tree_config,
         leafOwner: wallet.publicKey,
         tree: tree.publicKey,
-        collectionMint: collectionNFT.mintAddress,
-        collectionMetadata: collectionNFT.metadataAddress,
+        collectionMint: fetchedNFT.publicKey,
+        collectionMetadata: metadataAccount,
         bubblegumSigner: bubblegumSigner,
-        editionAccount: collectionNFT.masterEditionAddress,
+        editionAccount:  editionAccount,
       })
     .rpc({ commitment: 'confirmed' });
     await confirmTransaction(tx);
