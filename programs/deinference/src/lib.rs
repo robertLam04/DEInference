@@ -5,8 +5,9 @@ use crate::instructions::*;
 use crate::instructions::setup::*;
 mod instructions;
 mod state;
+mod error;
 
-declare_id!("3zp1SJ5F93JvofRoFWmHf7k8ih3zGMpDLf7ftZqKE742");
+declare_id!("wzNWfVoCJsfuYjdMwNxDL1WCGAiSyupGqzx2cwrvEjK");
 
 #[derive(Clone)]
 pub struct Noop;
@@ -69,19 +70,24 @@ pub mod knowledge_manager {
         Ok(())
     }
 
-    pub fn mint_to_collection(
-        ctx: Context<MintToCollection>,
+    pub fn mint_to_task(
+        ctx: Context<MintToTask>,
         name: String,
         symbol: String,
         uri: String,
         seller_fee_basis_points: u16
     ) -> Result<()> {
-        instructions::mint_to_collection(ctx, name, symbol, uri, seller_fee_basis_points)?;
+        instructions::mint_to_task(ctx, name, symbol, uri, seller_fee_basis_points)?;
         Ok(())
     }
 
-    pub fn close_state_account(ctx: Context<CloseStateAccount>) -> Result<()> {
-        instructions::close_state_account(ctx)?;
+    pub fn create_task(ctx: Context<CreateTask>) -> Result<()> {
+        instructions::setup::create_task(ctx)?;
+        Ok(())
+    }
+
+    pub fn close_account(ctx: Context<CloseAccount>) -> Result<()> {
+        instructions::close_account(ctx)?;
         Ok(())
     }
 }

@@ -6,7 +6,7 @@ resolution = true
 skip-lint = false
 
 [programs.localnet]
-knowledge_manager = "3zp1SJ5F93JvofRoFWmHf7k8ih3zGMpDLf7ftZqKE742"
+knowledge_manager = "wzNWfVoCJsfuYjdMwNxDL1WCGAiSyupGqzx2cwrvEjK"
 
 [registry]
 url = "https://api.apr.dev"
