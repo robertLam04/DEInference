@@ -1,19 +1,27 @@
 use anchor_lang::prelude::*;
 use mpl_bubblegum::instructions::MintToCollectionV1CpiBuilder;
 use mpl_bubblegum::types::{Collection, MetadataArgs, TokenProgramVersion, TokenStandard};
+use crate::state::TaskData;
 use crate::{MplBubblegum, Noop, SplAccountCompression, Metadata};
 
 #[derive(Accounts)]
-pub struct MintToCollection<'info> {
+pub struct MintToTask<'info> {
     #[account(mut)]
     pub payer: Signer<'info>,
+
+    #[account(
+        mut,
+        seeds = [b"collection123"],
+        bump
+    )]
+    pub task_data: Account<'info, TaskData>,
 
     /// CHECK: This account is checked in the downstream instruction
     #[account(mut)]
     pub tree_auth: UncheckedAccount<'info>,
 
     /// CHECK: This account is neither written to nor read from.
-    pub leaf_owner: AccountInfo<'info>,
+    pub model_owner: AccountInfo<'info>,
 
     #[account(mut)]
     /// CHECK: unsafe
@@ -45,13 +53,13 @@ pub struct MintToCollection<'info> {
     pub system_program: Program<'info, System>,
 }
 
-pub fn mint_to_collection(ctx: Context<MintToCollection>, name: String,symbol: String, uri: String,seller_fee_basis_points: u16) -> Result<()> {
+pub fn mint_to_task(ctx: Context<MintToTask>, name: String,symbol: String, uri: String,seller_fee_basis_points: u16) -> Result<()> {
     MintToCollectionV1CpiBuilder::new(
         &ctx.accounts.bubblegum_program.to_account_info(),
     )
         .tree_config(&ctx.accounts.tree_auth.to_account_info())
-        .leaf_owner(&ctx.accounts.leaf_owner.to_account_info())
-        .leaf_delegate(&ctx.accounts.leaf_owner.to_account_info())
+        .leaf_owner(&ctx.accounts.model_owner.to_account_info())
+        .leaf_delegate(&ctx.accounts.model_owner.to_account_info())
         .merkle_tree(&ctx.accounts.tree.to_account_info())
         .payer(&ctx.accounts.payer.to_account_info())
         .tree_creator_or_delegate(&ctx.accounts.collection_authority.to_account_info())
@@ -90,7 +98,9 @@ pub fn mint_to_collection(ctx: Context<MintToCollection>, name: String,symbol: S
             &[ctx.bumps.collection_authority]
     ]])?;
 
+    // Increment model count for this task
+    let task_data = &mut ctx.accounts.task_data;
+    task_data.model_count += 1;
     
-
     Ok(())
 }

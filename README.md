@@ -2,10 +2,10 @@
 
 ## Overview
 
-inference-dec is a dapp built on Solana for performing decentralized inference of ML models. 
+inference-dec is smart-contract built on Solana for performing decentralized inference of ML models. 
 
 ### Features
-- Immutability and ownership by storing the hash of the models weights in a cNFT.
+- Immutability and ownership by storing the hash of a ML model's weights in an cNFT collection
 - Decentralized inference with zk-proof validation.
 - Reputation-based rewards for model owners.
 - Aggregated predictions for accurate and trustless results.
@@ -17,7 +17,7 @@ inference-dec is a dapp built on Solana for performing decentralized inference o
    - Reputation is set to a base value (stored in program state).  
 
 2. **Inference Request**  
-   - User submits an inference request specifying the input and desired model collection.  
+   - User submits an inference request specifying the input and desired model collection.
    - Smart contract broadcasts this request to model owners (or third-party computation nodes).  
 
 3. **Model Execution**  

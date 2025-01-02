@@ -2,24 +2,24 @@ import * as anchor from "@coral-xyz/anchor";
 import { Program } from "@coral-xyz/anchor";
 import { KnowledgeManager } from "../target/types/knowledge_manager";
 import {
-  findTreeConfigPda,
   findLeafAssetIdPda,
   MPL_BUBBLEGUM_PROGRAM_ID,
 } from '@metaplex-foundation/mpl-bubblegum';
-import { updateMetadataAccountV2, fetchDigitalAsset, mplTokenMetadata, createAndMint, updateAsUpdateAuthorityV2, updateV1 } from "@metaplex-foundation/mpl-token-metadata";
+import { fetchDigitalAsset, mplTokenMetadata, updateV1, } from "@metaplex-foundation/mpl-token-metadata";
 import { MPL_TOKEN_METADATA_PROGRAM_ID, createNft } from '@metaplex-foundation/mpl-token-metadata';
-import { percentAmount, PublicKey as UmiPK, generateSigner, OptionOrNullable, some, signerIdentity, createSignerFromKeypair, KeypairSigner, transactionBuilder, Umi } from '@metaplex-foundation/umi';
+import { percentAmount, PublicKey as UmiPK, generateSigner, signerIdentity, createSignerFromKeypair, KeypairSigner } from '@metaplex-foundation/umi';
 import { createUmi } from '@metaplex-foundation/umi-bundle-defaults';
 import { dasApi } from '@metaplex-foundation/digital-asset-standard-api';
 import { PublicKey, Keypair, TransactionConfirmationStrategy, Transaction, sendAndConfirmTransaction, TransactionSignature, SystemProgram } from "@solana/web3.js";
 import { assert } from "chai";
 import { ChangeLogEventV1, ConcurrentMerkleTreeAccount, createAllocTreeIx, deserializeChangeLogEventV1, ValidDepthSizePair } from "@solana/spl-account-compression";
 import { bs58 } from "@coral-xyz/anchor/dist/cjs/utils/bytes";
-import { base58, utf8 } from "@metaplex-foundation/umi/serializers";
+import { base58 } from "@metaplex-foundation/umi/serializers";
 
-describe("knowledge-manager", () => {
+describe("deinference", () => {
 
   const confirmTransaction = async (signature) => {
+    console.log("Attempting to confirm transaction:", signature);
     const latestBlockHash = await connection.getLatestBlockhash();
     const lastValidBlockHeight = latestBlockHash.lastValidBlockHeight;
 
@@ -34,6 +34,7 @@ describe("knowledge-manager", () => {
   
   let programStateAccountInfo;
   let programStateData;
+  let collectionMetadataAccount: PublicKey;
   let treeAccount: ConcurrentMerkleTreeAccount;
   let collection_mint: KeypairSigner;
 
@@ -60,6 +61,12 @@ describe("knowledge-manager", () => {
     program.programId
   );
 
+  // Derive the PDA (task_data)
+  let [taskDataPda] = PublicKey.findProgramAddressSync(
+    [Buffer.from("collection123")],
+    program.programId
+  )
+
   // Create merkle tree account
   const tree = Keypair.generate();
 
@@ -78,8 +85,7 @@ describe("knowledge-manager", () => {
       new PublicKey(MPL_BUBBLEGUM_PROGRAM_ID)
   );
 
-  console.log("Tree config:", tree_config);
-
+  // Derive bubblegum signer pda
   const [bubblegumSigner] = PublicKey.findProgramAddressSync(
     // `collection_cpi` is a custom prefix required by the Bubblegum program
     [Buffer.from('collection_cpi', 'utf8')],
@@ -108,12 +114,21 @@ describe("knowledge-manager", () => {
   }
 
   before(async () => {
-    // Close pda state account if it exists
+    // Close state accounts if they already exist
     const programStateAccountInfo = await provider.connection.getAccountInfo(programStatePda);
     if (programStateAccountInfo) {
-      const closeTx = await program.methods.closeStateAccount()
+      const closeStateAccountTx = await program.methods.closeAccount()
       .accounts({
-        programState: programStatePda,
+        pdaAccount: programStatePda,
+        receiver: wallet.payer.publicKey
+      }).signers([wallet.payer]).rpc({ commitment: 'confirmed'});
+    }
+
+    const taskDataStateAccountInfo = await provider.connection.getAccountInfo(taskDataPda);
+    if (taskDataStateAccountInfo) {
+      const closeTaskDataAccountTx = await program.methods.closeAccount()
+      .accounts({
+        pdaAccount: taskDataPda,
         receiver: wallet.payer.publicKey
       }).signers([wallet.payer]).rpc({ commitment: 'confirmed'});
     } 
@@ -147,28 +162,30 @@ describe("knowledge-manager", () => {
       name: 'TEST-COLLECTION',
       uri: "TEST-COLLECTION-URI",
       isCollection: true
-    }).sendAndConfirm(umi); 
+    }).sendAndConfirm(umi);
     
     const createNftSignature = base58.deserialize(createNftTx.signature)[0];
     console.log(`https://explorer.solana.com/tx/${createNftSignature}?cluster=devnet`)
-  
-    const metadataAddress = PublicKey.findProgramAddressSync(
-      [
-        Buffer.from("metadata", "utf8"),
-        new PublicKey(MPL_TOKEN_METADATA_PROGRAM_ID).toBuffer(),
-        new PublicKey(collection_mint.publicKey).toBuffer()
-      ],
-      new PublicKey(MPL_TOKEN_METADATA_PROGRAM_ID)
-    )[0];
+
+    await confirmTransaction(createNftSignature);
 
     const updateNftUpdateAuthTx = await updateV1(umi, {
       mint: collection_mint.publicKey,
-      authority: signer,
       newUpdateAuthority: tree_owner.toBase58() as UmiPK
-    },).sendAndConfirm(umi);
+    }).sendAndConfirm(umi);
 
     const updateNftUpdateAuthSignature = base58.deserialize(updateNftUpdateAuthTx.signature)[0];
     console.log(`https://explorer.solana.com/tx/${updateNftUpdateAuthSignature}?cluster=devnet`)
+
+    // Derive collection metadata pda account
+    collectionMetadataAccount = PublicKey.findProgramAddressSync(
+      [
+        Buffer.from("metadata", "utf8"),
+        new PublicKey(MPL_TOKEN_METADATA_PROGRAM_ID).toBuffer(),
+        new PublicKey(collection_mint.publicKey).toBuffer(),
+      ],
+      new PublicKey(MPL_TOKEN_METADATA_PROGRAM_ID)
+    )[0];
 
   });
 
@@ -289,37 +306,53 @@ describe("knowledge-manager", () => {
 
   });
 
-  it("Mints an NFT to an existing merkle tree and collection", async () => {
+  it("Initializes a new inference task collection", async () => {
+    // Derive the task_data PDA
+    const [taskDataPDA, bump] = PublicKey.findProgramAddressSync(
+      [Buffer.from("collection123")],
+      program.programId
+    );
 
-    const fetchedNFT = await fetchDigitalAsset(umi, collection_mint.publicKey);
+    // Call the create_task instruction
+    const tx = await program.methods
+      .createTask().accounts({
+        collectionMint: collection_mint.publicKey,
+        metadata: collectionMetadataAccount,
+        payer: wallet.publicKey,
+      })
+      .signers([wallet.payer]) 
+    .rpc({commitment: 'confirmed'});
+
+    await confirmTransaction(tx);
+    console.log("create task ix:", tx)
+
+    // Fetch the task_data account and assert it was initialized
+    const taskDataAccount = await program.account.taskData.fetch(taskDataPDA);
+    assert.ok(taskDataAccount.mint.equals(new PublicKey(collection_mint.publicKey)));
+  });
+
+  it("Mints an NFT to an existing merkle tree and task (collection)", async () => {
+
+    //const fetchedNFT = await fetchDigitalAsset(umi, collection_mint.publicKey);
 
     const editionAccount = PublicKey.findProgramAddressSync(
       [
         Buffer.from('metadata', 'utf8'),
         new PublicKey(MPL_TOKEN_METADATA_PROGRAM_ID).toBuffer(),
-        new PublicKey(fetchedNFT.publicKey).toBuffer(),
+        new PublicKey(collection_mint.publicKey).toBuffer(),
         Buffer.from('edition', 'utf8'),
       ],
       new PublicKey(MPL_TOKEN_METADATA_PROGRAM_ID)
     )[0];
 
-    const metadataAccount = PublicKey.findProgramAddressSync(
-      [
-        Buffer.from("metadata", "utf8"),
-        new PublicKey(MPL_TOKEN_METADATA_PROGRAM_ID).toBuffer(),
-        new PublicKey(collection_mint.publicKey).toBuffer(),
-      ],
-      new PublicKey(MPL_TOKEN_METADATA_PROGRAM_ID)
-    )[0];
-
     const tx = await program.methods
-      .mintToCollection(metadata.name, metadata.symbol, metadata.uri, 0)
+      .mintToTask(metadata.name, metadata.symbol, metadata.uri, 0)
       .accounts({
         treeAuth: tree_config,
-        leafOwner: wallet.publicKey,
+        modelOwner: wallet.publicKey,
         tree: tree.publicKey,
-        collectionMint: fetchedNFT.publicKey,
-        collectionMetadata: metadataAccount,
+        collectionMint: collection_mint.publicKey,
+        collectionMetadata: collectionMetadataAccount,
         bubblegumSigner: bubblegumSigner,
         editionAccount:  editionAccount,
       })
