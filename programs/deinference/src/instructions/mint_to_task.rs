@@ -1,13 +1,22 @@
 use anchor_lang::prelude::*;
 use mpl_bubblegum::instructions::MintToCollectionV1CpiBuilder;
 use mpl_bubblegum::types::{Collection, MetadataArgs, TokenProgramVersion, TokenStandard};
-use crate::state::TaskData;
+use crate::error::Errors;
+use crate::state::{ModelData, ProgramState, TaskData};
 use crate::{MplBubblegum, Noop, SplAccountCompression, Metadata};
 
 #[derive(Accounts)]
 pub struct MintToTask<'info> {
     #[account(mut)]
     pub payer: Signer<'info>,
+
+    #[account(
+        mut,
+        seeds = [b"knowledge"],
+        bump
+        
+    )]
+    pub program_state: Account<'info, ProgramState>,
 
     #[account(
         mut,
@@ -53,7 +62,8 @@ pub struct MintToTask<'info> {
     pub system_program: Program<'info, System>,
 }
 
-pub fn mint_to_task(ctx: Context<MintToTask>, name: String,symbol: String, uri: String,seller_fee_basis_points: u16) -> Result<()> {
+pub fn mint_to_task(ctx: Context<MintToTask>, name: String, symbol: String, uri: String, seller_fee_basis_points: u16) -> Result<()> {
+    let uri_clone = uri.clone();
     MintToCollectionV1CpiBuilder::new(
         &ctx.accounts.bubblegum_program.to_account_info(),
     )
@@ -101,6 +111,26 @@ pub fn mint_to_task(ctx: Context<MintToTask>, name: String,symbol: String, uri: 
     // Increment model count for this task
     let task_data = &mut ctx.accounts.task_data;
     task_data.model_count += 1;
+
+    // Append model to task data
+    let program_state = &mut ctx.accounts.program_state;
+    let tree = &ctx.accounts.tree;
+    let leaf_index = program_state.
+        get_tree(*tree.key).
+        ok_or(error!(Errors::TreeNotFound))?.current_index;
+
+    
+    let model = ModelData {
+        weights_hash: uri_clone.as_bytes().try_into().expect("URI must be 32 bytes"),
+        tree_address: *ctx.accounts.tree.key,
+        leaf_index: leaf_index,
+        reputation: 0 // inital value
+    };
+
+    task_data.models.push(model);
+
+    // Increment tree index
+    program_state.increment_index(*tree.key)?;
     
     Ok(())
 }

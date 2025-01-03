@@ -6,7 +6,7 @@ use crate::state::ProgramState;
 pub struct Initialize<'info> {
     // space = account disc (8) + pubkey (32) + vec size (4) + tree_count (2) + max_trees (1) * tree info (64)
     #[account(
-        init, payer = payer, space = 46 + 1 * 64, seeds = [b"knowledge"], bump
+        init, payer = payer, space = 46 + 1 * 66, seeds = [b"knowledge"], bump
     )]
     pub program_state: Account<'info, ProgramState>,
 

@@ -64,6 +64,7 @@ pub fn create_tree(ctx: Context<CreateTree>, max_depth: u32, max_buffer_size: u3
     let new_tree = TreeInfo {
         tree_address,
         tree_config,
+        current_index: 0
     };
 
     program_state.trees.push(new_tree);

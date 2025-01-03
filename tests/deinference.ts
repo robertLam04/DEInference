@@ -101,7 +101,7 @@ describe("deinference", () => {
 
   // Define metadata for NFT
   const metadata = {
-    uri: 'https://arweave.net/h19GMcMz7RLDY7kAHGWeWolHTmO83mLLMNPzEkF32BQ',
+    uri: '12345678901234567890123456789012', // Must be 32 bytes
     name: 'TEST-NFT',
     symbol: 'TNFT'
   }
@@ -216,7 +216,7 @@ describe("deinference", () => {
 
     assert.strictEqual(
       programStateAccountInfo.data.length,
-      46 + 1 * 64, // space = account disc (8) + pubkey (32) + vec size (4) + tree count (2) + max_#_trees * tree info (64)
+      46 + 1 * 66, // space = account disc (8) + pubkey (32) + vec size (4) + tree count (2) + max_#_trees * tree info (66)
       "tree_state account data size is incorrect"
     );
   });
@@ -251,8 +251,8 @@ describe("deinference", () => {
     assert.strictEqual(
       programStateData.treeCount,
       1,
-      "Unexpected number of merkle trees");
-
+      "Unexpected number of merkle trees"
+    );
   });
 
   it("Mints an NFT to an existing merkle tree", async () => {
@@ -307,12 +307,6 @@ describe("deinference", () => {
   });
 
   it("Initializes a new inference task collection", async () => {
-    // Derive the task_data PDA
-    const [taskDataPDA, bump] = PublicKey.findProgramAddressSync(
-      [Buffer.from("collection123")],
-      program.programId
-    );
-
     // Call the create_task instruction
     const tx = await program.methods
       .createTask().accounts({
@@ -327,8 +321,10 @@ describe("deinference", () => {
     console.log("create task ix:", tx)
 
     // Fetch the task_data account and assert it was initialized
-    const taskDataAccount = await program.account.taskData.fetch(taskDataPDA);
-    assert.ok(taskDataAccount.mint.equals(new PublicKey(collection_mint.publicKey)));
+    const taskDataAccountInfo = await provider.connection.getAccountInfo(taskDataPda);
+    const taskDataAccount = await program.account.taskData.fetch(taskDataPda);
+    assert.strictEqual(taskDataAccountInfo.data.length, 117);
+    assert.ok(taskDataAccount.collectionMint.equals(new PublicKey(collection_mint.publicKey)));
   });
 
   it("Mints an NFT to an existing merkle tree and task (collection)", async () => {
@@ -359,6 +355,33 @@ describe("deinference", () => {
     .rpc({ commitment: 'confirmed' });
     await confirmTransaction(tx);
     console.log(`Transaction: https://explorer.solana.com/tx/${tx}?cluster=devnet`);
+    
+    programStateData = await program.account.programState.fetch(programStatePda);
+    const taskData = await program.account.taskData.fetch(taskDataPda);
+
+    assert.strictEqual(taskData.modelCount, 1);
+    assert.deepEqual(taskData.models[0].weightsHash, Array.from(anchor.utils.bytes.utf8.encode(metadata.uri)));
+  
   });
 
+  it("Retrieves a model from task data and emits an event", async () => {
+    const weightsHash = Array.from(anchor.utils.bytes.utf8.encode(metadata.uri));
+
+    const listener = program.addEventListener("modelRetrieved", (event, slot) => {
+      console.log("Event data:", event);
+      console.log("Event slot:", slot);
+  
+      assert.strictEqual(event.leafIndex, 0);
+      assert.strictEqual(event.reputation, 0);
+      assert.deepEqual(event.treeAddress, tree.publicKey);
+    });
+
+    await program.methods.getModel(weightsHash)
+      .accounts({
+        payer: wallet.payer.publicKey
+    }).rpc({commitment: 'confirmed'})
+
+    await program.removeEventListener(listener);
+
+  });
 });

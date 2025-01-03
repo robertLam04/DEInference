@@ -1,5 +1,3 @@
-use std::task;
-
 use anchor_lang::prelude::*;
 use crate::state::TaskData;
 use crate::Metadata;
@@ -7,9 +5,10 @@ use mpl_token_metadata::accounts::Metadata as MPLMetadata;
 
 #[derive(Accounts)]
 pub struct CreateTask<'info> {
-    // space = account disc (4) + mint (32) + name size (4) + max name (32) + uri size (4) + max uri (200) + model_count (2) + models (36 * 2)
+    // space = account disc (8) + mint (32) + model_count (2) + vec_size (4)
+    // + max_models (1 for now) * model_data(length_prefix (4) + string_length (32) + pubkey (32) + leaf_index (2) + reputation (1))
     #[account(
-        init, payer = payer, space = 350, seeds = [b"collection123"], bump
+        init, payer = payer, space = 117, seeds = [b"collection123"], bump
     )]
     pub task_data: Account<'info, TaskData>,
 
@@ -34,9 +33,7 @@ pub fn create_task(ctx: Context<CreateTask>) -> Result<()> {
     let metadata_data = MPLMetadata::deserialize(&mut metadata.as_ref())?;
     
     let task_data = &mut ctx.accounts.task_data;
-    task_data.mint = metadata_data.mint;
-    task_data.name = metadata_data.name;
-    task_data.uri = metadata_data.uri;
+    task_data.collection_mint = metadata_data.mint;
     task_data.model_count = 0;
 
     Ok(())

@@ -7,7 +7,7 @@ mod instructions;
 mod state;
 mod error;
 
-declare_id!("wzNWfVoCJsfuYjdMwNxDL1WCGAiSyupGqzx2cwrvEjK");
+declare_id!("EnCSRL7CPEoj3TmkxKLiA16CgtCJbwea26TiRNp3s39a");
 
 #[derive(Clone)]
 pub struct Noop;
@@ -70,6 +70,11 @@ pub mod knowledge_manager {
         Ok(())
     }
 
+    pub fn create_task(ctx: Context<CreateTask>) -> Result<()> {
+        instructions::setup::create_task(ctx)?;
+        Ok(())
+    }
+
     pub fn mint_to_task(
         ctx: Context<MintToTask>,
         name: String,
@@ -81,8 +86,8 @@ pub mod knowledge_manager {
         Ok(())
     }
 
-    pub fn create_task(ctx: Context<CreateTask>) -> Result<()> {
-        instructions::setup::create_task(ctx)?;
+    pub fn get_model(ctx: Context<GetModel>, weights_hash: [u8; 32]) -> Result<()> {
+        instructions::get_model(ctx, weights_hash)?; 
         Ok(())
     }
 

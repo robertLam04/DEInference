@@ -6,4 +6,6 @@ pub enum Errors {
     TreeNotFound,
     #[msg("Overflow occurred when incrementing index.")]
     IndexOverflow,
+    #[msg("Model not found.")]
+    ModelNotFound,
 }
