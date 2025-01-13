@@ -9,4 +9,4 @@ pub use mint::*;
 pub use close_account::*;
 pub use mint_to_task::*;
 pub use get_model::*;
-pub use post_request;
+pub use post_request::*;

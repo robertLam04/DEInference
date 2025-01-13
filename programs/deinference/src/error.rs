@@ -8,4 +8,6 @@ pub enum Errors {
     IndexOverflow,
     #[msg("Model not found.")]
     ModelNotFound,
+    #[msg("Model count for this task must be greater than the minimum")]
+    ModelCountTooLow
 }

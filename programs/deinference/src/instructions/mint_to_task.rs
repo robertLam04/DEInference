@@ -20,7 +20,7 @@ pub struct MintToTask<'info> {
 
     #[account(
         mut,
-        seeds = [b"collection123"],
+        seeds = [b"collection123", collection_mint.key().as_ref()],
         bump
     )]
     pub task_data: Account<'info, TaskData>,

@@ -7,14 +7,17 @@ import {
 } from '@metaplex-foundation/mpl-bubblegum';
 import { fetchDigitalAsset, mplTokenMetadata, updateV1, } from "@metaplex-foundation/mpl-token-metadata";
 import { MPL_TOKEN_METADATA_PROGRAM_ID, createNft } from '@metaplex-foundation/mpl-token-metadata';
-import { percentAmount, PublicKey as UmiPK, generateSigner, signerIdentity, createSignerFromKeypair, KeypairSigner } from '@metaplex-foundation/umi';
+import { percentAmount, PublicKey as UmiPK, generateSigner, signerIdentity, createSignerFromKeypair, KeypairSigner, request } from '@metaplex-foundation/umi';
 import { createUmi } from '@metaplex-foundation/umi-bundle-defaults';
 import { dasApi } from '@metaplex-foundation/digital-asset-standard-api';
-import { PublicKey, Keypair, TransactionConfirmationStrategy, Transaction, sendAndConfirmTransaction, TransactionSignature, SystemProgram } from "@solana/web3.js";
+import { PublicKey, Keypair, TransactionConfirmationStrategy, Transaction, sendAndConfirmTransaction, TransactionSignature, SystemProgram, CreateAccountParams, LAMPORTS_PER_SOL, TransactionInstruction } from "@solana/web3.js";
 import { assert } from "chai";
-import { ChangeLogEventV1, ConcurrentMerkleTreeAccount, createAllocTreeIx, deserializeChangeLogEventV1, ValidDepthSizePair } from "@solana/spl-account-compression";
+import { ChangeLogEventV1, compressionAccountTypeBeet, ConcurrentMerkleTreeAccount, createAllocTreeIx, deserializeChangeLogEventV1, ValidDepthSizePair } from "@solana/spl-account-compression";
+import {  } from "@coral-xyz/anchor"
 import { bs58 } from "@coral-xyz/anchor/dist/cjs/utils/bytes";
 import { base58 } from "@metaplex-foundation/umi/serializers";
+import * as borsh from "borsh";
+import fs from "fs";
 
 describe("deinference", () => {
 
@@ -62,8 +65,12 @@ describe("deinference", () => {
   );
 
   // Derive the PDA (task_data)
+  collection_mint = generateSigner(umi);
   let [taskDataPda] = PublicKey.findProgramAddressSync(
-    [Buffer.from("collection123")],
+    [
+      Buffer.from("collection123"),
+      new PublicKey(collection_mint.publicKey).toBuffer()
+    ],
     program.programId
   )
 
@@ -106,13 +113,6 @@ describe("deinference", () => {
     symbol: 'TNFT'
   }
 
-  // Define metadata for NFT collection
-  const metadataCollection = {
-    uri: 'https://arweave.net/h19GMcMz7RLDY7kAHGWeWolHTmO83mLLMNPzEkF32BQ',
-    name: 'TEST-COLLECTION-NFT',
-    symbol: 'TCNFT'
-  }
-
   before(async () => {
     // Close state accounts if they already exist
     const programStateAccountInfo = await provider.connection.getAccountInfo(programStatePda);
@@ -131,6 +131,24 @@ describe("deinference", () => {
         pdaAccount: taskDataPda,
         receiver: wallet.payer.publicKey
       }).signers([wallet.payer]).rpc({ commitment: 'confirmed'});
+    } 
+
+    const inf_req_counter = Buffer.alloc(2);
+    inf_req_counter.writeUInt16LE(0);
+    let [requestStatePda] = PublicKey.findProgramAddressSync(
+      [Buffer.from("request"), new PublicKey(wallet.payer.publicKey).toBuffer(), inf_req_counter], // Same seed as in the Rust program
+      program.programId
+    );
+
+    const requestStateAccountInfo = await provider.connection.getAccountInfo(requestStatePda);
+    if (requestStateAccountInfo) {
+      console.log("Attempting to close request state");
+      const closeRequestStateAccountTx = await program.methods.closeAccount()
+      .accounts({
+        pdaAccount: requestStatePda,
+        receiver: wallet.payer.publicKey
+      }).signers([wallet.payer]).rpc({ commitment: 'confirmed'});
+      console.log("Request state account closed:", closeRequestStateAccountTx);
     } 
     
     // Give tree account space
@@ -155,12 +173,11 @@ describe("deinference", () => {
     console.log('Tree Address:', tree.publicKey.toBase58());
 
     // Create collection mint
-    collection_mint = generateSigner(umi);
     const createNftTx = await createNft(umi, {
       mint: collection_mint,
       sellerFeeBasisPoints: percentAmount(0),
       name: 'TEST-COLLECTION',
-      uri: "TEST-COLLECTION-URI",
+      uri: "https://raw.githubusercontent.com/robertLam04/DEInference/main/example_task.json",
       isCollection: true
     }).sendAndConfirm(umi);
     
@@ -216,7 +233,7 @@ describe("deinference", () => {
 
     assert.strictEqual(
       programStateAccountInfo.data.length,
-      46 + 1 * 66, // space = account disc (8) + pubkey (32) + vec size (4) + tree count (2) + max_#_trees * tree info (66)
+      48 + 1 * 66, // space = account disc (8) inf_req_counter (2) + pubkey (32) + vec size (4) + tree count (2) + max_#_trees * tree info (66)
       "tree_state account data size is incorrect"
     );
   });
@@ -378,10 +395,109 @@ describe("deinference", () => {
 
     await program.methods.getModel(weightsHash)
       .accounts({
-        payer: wallet.payer.publicKey
-    }).rpc({commitment: 'confirmed'})
+        payer: wallet.payer.publicKey,
+        collectionMint: collection_mint.publicKey,
+    }).rpc({commitment: 'confirmed'});
 
     await program.removeEventListener(listener);
+
+  });
+
+  it("Posts a new inference request and emits an event", async () => {
+    type RustType = 'u64' | 'string' | 'bool';
+
+    interface Field {
+      name: string;
+      type: RustType | { fields: Field[] };
+    }
+
+    // Fetch expected input struct from collection metadata
+    const collection = await fetchDigitalAsset(umi, collection_mint.publicKey);
+    console.log("uri: ", collection.metadata.uri);
+    
+    const json = await fetch(
+      collection.metadata.uri
+    )
+      .then((response) => {
+        if (!response.ok) {
+          throw new Error(`HTTP error: ${response.status}`);
+        }
+        return response.json();
+    });
+
+    function createStruct(fields: Field[]): Record<string, any> {
+      const structure: Record<string, any> = {};
+    
+      for (const field of fields) {
+        if (typeof field.type === 'string') {
+          // Primitive RustType
+          structure[field.name] = field.type;
+        } else if ('fields' in field.type) {
+          // Nested fields, handle recursively
+          structure[field.name] = createStruct(field.type.fields);
+        }
+      }
+    
+      return structure;
+    }
+
+    // Use this struct to build input prompt in frontend. Optionally allow a direct JSON input and check if structure matches.
+    const input_struct = createStruct(json.format.fields);
+    console.log("expected input format:", input_struct);
+
+    class RequestData {
+      param1: number;
+      param2: number;
+      name: string;
+      constructor(fields) {
+        this.param1 = fields.param1;
+        this.param2 = fields.param2;
+        this.name = fields.name;
+      }
+    }
+    
+    // Define the schema for Borsh serialization
+    const schema = new Map([
+      [
+        RequestData,
+        {
+          kind: "struct",
+          fields: [
+            ["param1", "u32"],
+            ["param2", "u32"],
+            ["name", "string"],
+          ],
+        },
+      ],
+    ]);
+    
+    const requestData = new RequestData({
+      param1: 1234,
+      param2: 1234,
+      name: 'test',
+    });
+    
+    // Serialize into bytes
+    const serializedData = borsh.serialize(schema, requestData);
+    console.log("data length:", serializedData.length);
+
+    const listener = program.addEventListener("request", (event, slot) => {
+      assert.deepEqual(event.taskCollection, new PublicKey(collection_mint.publicKey));
+      assert.ok(event.status.pending);
+      assert.notOk(event.status.aggregated);
+    });
+
+    const tx = await program.methods.postRequest(Buffer.from(serializedData)).accounts({
+      user: wallet.publicKey, // Use our wallet here as the user for simplicity (change later)
+      collectionMint: collection_mint.publicKey
+    }).signers([wallet.payer]).rpc({commitment: 'confirmed'});
+    await confirmTransaction(tx);
+
+    await program.removeEventListener(listener);
+    
+    programStateData = await program.account.programState.fetch(programStatePda);
+  
+    assert.strictEqual(programStateData.infReqCounter, 1);
 
   });
 });

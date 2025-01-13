@@ -8,7 +8,7 @@ pub struct CreateTask<'info> {
     // space = account disc (8) + mint (32) + model_count (2) + vec_size (4)
     // + max_models (1 for now) * model_data(length_prefix (4) + string_length (32) + pubkey (32) + leaf_index (2) + reputation (1))
     #[account(
-        init, payer = payer, space = 117, seeds = [b"collection123"], bump
+        init, payer = payer, space = 117, seeds = [b"collection123", collection_mint.key().as_ref()], bump
     )]
     pub task_data: Account<'info, TaskData>,
 

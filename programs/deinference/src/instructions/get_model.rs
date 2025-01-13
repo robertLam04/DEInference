@@ -13,10 +13,13 @@ pub struct ModelRetrieved {
 pub struct GetModel<'info>{
     #[account(
         mut,
-        seeds = [b"collection123"],
+        seeds = [b"collection123", collection_mint.key().as_ref()],
         bump
     )]
-    task_data: Account<'info, TaskData>,
+    pub task_data: Account<'info, TaskData>,
+
+    /// CHECK: unsafe
+    pub collection_mint: UncheckedAccount<'info>,
 
     #[account(mut)]
     pub payer: Signer<'info>

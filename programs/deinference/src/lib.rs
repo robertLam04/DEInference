@@ -7,7 +7,7 @@ mod instructions;
 mod state;
 mod error;
 
-declare_id!("EnCSRL7CPEoj3TmkxKLiA16CgtCJbwea26TiRNp3s39a");
+declare_id!("GJFXHDjc5uCcjQcX2aovmPvD73igW5gvYQSMSh2nbhGd");
 
 #[derive(Clone)]
 pub struct Noop;
@@ -83,6 +83,11 @@ pub mod knowledge_manager {
         seller_fee_basis_points: u16
     ) -> Result<()> {
         instructions::mint_to_task(ctx, name, symbol, uri, seller_fee_basis_points)?;
+        Ok(())
+    }
+
+    pub fn post_request(ctx:Context<PostRequest>, data: Vec<u8>) -> Result<()> {
+        instructions::post_request(ctx, data)?;
         Ok(())
     }
 
