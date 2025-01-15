@@ -1,12 +1,12 @@
 use anchor_lang::prelude::*;
+use strum_macros::ToString;
 use crate::error::Errors;
 
 #[account]
 pub struct ProgramState {
     pub creator: Pubkey, // Program's authority
     pub tree_count: u16,
-    pub trees: Vec<TreeInfo>,
-    pub inf_req_counter: u16
+    pub trees: Vec<TreeInfo>
 }
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone)]
@@ -48,8 +48,15 @@ pub struct ModelData {
     pub reputation: u8
 }
 
+impl TaskData {
+    pub fn has_model(&self, weights_hash: &[u8; 32]) -> bool {
+        self.models.iter().any(|model| &model.weights_hash == weights_hash)
+    }
+}
+
 #[account]
-pub struct InferenceRequest {               
+pub struct InferenceRequest {          
+    pub request_id: u16,     
     pub user: Pubkey,      
     pub task_collection: Pubkey,      // associated task
     pub input_data: Vec<u8>,         // input data
@@ -58,7 +65,7 @@ pub struct InferenceRequest {
     pub results: Vec<ResultEntry>,     // Results submitted by nodes (may need to move this to off chain storage)
 }
 
-#[derive(AnchorSerialize, AnchorDeserialize, Clone)]
+#[derive(AnchorSerialize, AnchorDeserialize, Clone, PartialEq, Eq, ToString)]
 pub enum RequestStatus {
     Pending,
     Validated,
@@ -68,8 +75,8 @@ pub enum RequestStatus {
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone)]
 pub struct ResultEntry {
-    pub weights_hash: [u8; 32],    // model identifier      
-    pub prediction_hash: [u8; 32],    // Hash of the result
+    pub weights_hash: [u8; 32],    // model identifier
+    pub prediction: Vec<u8>,    // Hash of the result
 }
 
 // Unit tests
@@ -94,8 +101,7 @@ mod tests {
         let program_state = ProgramState {
             creator: Pubkey::new_unique(),
             tree_count: 2,
-            trees: vec![tree_1.clone(), tree_2.clone()],
-            inf_req_counter: 0
+            trees: vec![tree_1.clone(), tree_2.clone()]
         };
 
         // Test finding an existing tree
@@ -125,8 +131,7 @@ mod tests {
         let mut program_state = ProgramState {
             creator: Pubkey::new_unique(),
             tree_count: 2,
-            trees: vec![tree_1.clone(), tree_2.clone()],
-            inf_req_counter: 0
+            trees: vec![tree_1.clone(), tree_2.clone()]
         };
 
         // Increment index for an existing tree

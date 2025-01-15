@@ -86,8 +86,13 @@ pub mod knowledge_manager {
         Ok(())
     }
 
-    pub fn post_request(ctx:Context<PostRequest>, data: Vec<u8>) -> Result<()> {
-        instructions::post_request(ctx, data)?;
+    pub fn post_request(ctx:Context<PostRequest>, request_id: u16, data: Vec<u8>) -> Result<()> {
+        instructions::post_request(ctx, request_id, data)?;
+        Ok(())
+    }
+
+    pub fn submit_pred(ctx:Context<SubmitPred>, request_id: u16, weights_hash: [u8; 32], prediction: Vec<u8>) -> Result<()> {
+        instructions::submit_pred(ctx, request_id, weights_hash, prediction)?;
         Ok(())
     }
 
