@@ -4,6 +4,7 @@ use mpl_bubblegum::types::{Collection, MetadataArgs, TokenProgramVersion, TokenS
 use crate::error::Errors;
 use crate::state::{ModelData, ProgramState, TaskData};
 use crate::{MplBubblegum, Noop, SplAccountCompression, Metadata};
+use crate::verify::verify_ed25519_instruction;
 
 #[derive(Accounts)]
 pub struct MintToTask<'info> {
@@ -53,6 +54,10 @@ pub struct MintToTask<'info> {
     /// CHECK: This account is checked in the instruction
     pub edition_account: UncheckedAccount<'info>,
 
+    /// CHECK: Sysvar account for instruction introspection
+    #[account(address = solana_program::sysvar::instructions::ID)]
+    pub instruction_sysvar: AccountInfo<'info>,
+
     /// CHECK: This is just used as a signing PDA.
     pub bubblegum_signer: UncheckedAccount<'info>,
     pub log_wrapper: Program<'info, Noop>,
@@ -62,8 +67,8 @@ pub struct MintToTask<'info> {
     pub system_program: Program<'info, System>,
 }
 
-pub fn mint_to_task(ctx: Context<MintToTask>, name: String, symbol: String, uri: String, seller_fee_basis_points: u16) -> Result<()> {
-    let uri_clone = uri.clone();
+pub fn mint_to_task(ctx: Context<MintToTask>, name: String, symbol: String, weights: String, weights_signature: [u8; 64], seller_fee_basis_points: u16) -> Result<()> {
+    let weights_clone = weights.clone();
     MintToCollectionV1CpiBuilder::new(
         &ctx.accounts.bubblegum_program.to_account_info(),
     )
@@ -87,7 +92,7 @@ pub fn mint_to_task(ctx: Context<MintToTask>, name: String, symbol: String, uri:
             MetadataArgs {
                 name,
                 symbol,
-                uri,
+                uri: weights,
                 creators: vec![],
                 seller_fee_basis_points,
                 primary_sale_happened: false,
@@ -108,6 +113,14 @@ pub fn mint_to_task(ctx: Context<MintToTask>, name: String, symbol: String, uri:
             &[ctx.bumps.collection_authority]
     ]])?;
 
+    // Ensure the weights_hash are signed by the model owner
+    verify_ed25519_instruction(
+        &ctx.accounts.instruction_sysvar,
+        ctx.accounts.model_owner.key.as_ref(),
+        weights_clone.as_bytes(),
+        &weights_signature
+    )?;
+
     // Increment model count for this task
     let task_data = &mut ctx.accounts.task_data;
     task_data.model_count += 1;
@@ -118,10 +131,9 @@ pub fn mint_to_task(ctx: Context<MintToTask>, name: String, symbol: String, uri:
     let leaf_index = program_state.
         get_tree(*tree.key).
         ok_or(error!(Errors::TreeNotFound))?.current_index;
-
     
     let model = ModelData {
-        weights_hash: uri_clone.as_bytes().try_into().expect("URI must be 32 bytes"),
+        weights_hash: weights_clone.as_bytes().try_into().expect("URI must be 32 bytes"),
         tree_address: *ctx.accounts.tree.key,
         leaf_index: leaf_index,
         reputation: 0 // inital value

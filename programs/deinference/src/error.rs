@@ -11,5 +11,15 @@ pub enum Errors {
     #[msg("Model count for this task must be greater than the minimum")]
     ModelCountTooLow,
     #[msg("Invalid status")]
-    InvalidStatus
+    InvalidStatus,
+    #[msg("Wrong publickey provided to verify instruction")]
+    InvalidPublicKey,
+    #[msg("Invalid message provided to verify instruction")]
+    InvalidMessage,
+    #[msg("Invalid signature provided to verify instruction")]
+    InvalidSignature,
+    #[msg("Invalid Ed25519 instruction provided to verify instruction")]
+    InvalidEd25519Instruction,
+    #[msg("Missing Ed25519 instruction provided to verify instruction")]
+    MissingEd25519Instruction,
 }

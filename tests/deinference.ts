@@ -10,7 +10,8 @@ import { MPL_TOKEN_METADATA_PROGRAM_ID, createNft } from '@metaplex-foundation/m
 import { percentAmount, PublicKey as UmiPK, generateSigner, signerIdentity, createSignerFromKeypair, KeypairSigner, request } from '@metaplex-foundation/umi';
 import { createUmi } from '@metaplex-foundation/umi-bundle-defaults';
 import { dasApi } from '@metaplex-foundation/digital-asset-standard-api';
-import { PublicKey, Keypair, TransactionConfirmationStrategy, Transaction, sendAndConfirmTransaction, TransactionSignature, SystemProgram } from "@solana/web3.js";
+import { PublicKey, Keypair, TransactionConfirmationStrategy, Transaction, sendAndConfirmTransaction, TransactionSignature, SYSVAR_INSTRUCTIONS_PUBKEY,
+  Ed25519Program } from "@solana/web3.js";
 import { assert } from "chai";
 import { ChangeLogEventV1, ConcurrentMerkleTreeAccount, createAllocTreeIx, deserializeChangeLogEventV1, ValidDepthSizePair } from "@solana/spl-account-compression";
 import {  } from "@coral-xyz/anchor"
@@ -18,6 +19,7 @@ import { bs58 } from "@coral-xyz/anchor/dist/cjs/utils/bytes";
 import { base58 } from "@metaplex-foundation/umi/serializers";
 import * as borsh from "borsh";
 import { execSync } from "child_process";
+import nacl from 'tweetnacl';
 
 describe("deinference", () => {
 
@@ -364,8 +366,15 @@ describe("deinference", () => {
       new PublicKey(MPL_TOKEN_METADATA_PROGRAM_ID)
     )[0];
 
+    const signature = nacl.sign.detached(Buffer.from(metadata.uri), wallet.payer.secretKey);
+    const ed25519Instruction = Ed25519Program.createInstructionWithPublicKey({
+      publicKey: wallet.payer.publicKey.toBytes(),
+      message: Buffer.from(metadata.uri),
+      signature: signature
+    });
+
     const tx = await program.methods
-      .mintToTask(metadata.name, metadata.symbol, metadata.uri, 0)
+      .mintToTask(metadata.name, metadata.symbol, metadata.uri, Array.from(signature), 0)
       .accounts({
         treeAuth: tree_config,
         modelOwner: wallet.publicKey,
@@ -374,7 +383,7 @@ describe("deinference", () => {
         collectionMetadata: collectionMetadataAccount,
         bubblegumSigner: bubblegumSigner,
         editionAccount:  editionAccount,
-      })
+      }).preInstructions([ed25519Instruction]).signers([wallet.payer])
     .rpc({ commitment: 'confirmed' });
     await confirmTransaction(tx);
     console.log(`Transaction: https://explorer.solana.com/tx/${tx}?cluster=devnet`);
