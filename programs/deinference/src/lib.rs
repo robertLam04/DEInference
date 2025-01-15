@@ -3,6 +3,7 @@ use mpl_bubblegum::programs::{MPL_BUBBLEGUM_ID, SPL_ACCOUNT_COMPRESSION_ID, SPL_
 use mpl_token_metadata::programs::MPL_TOKEN_METADATA_ID;
 use crate::instructions::*;
 use crate::instructions::setup::*;
+mod verify;
 mod instructions;
 mod state;
 mod error;
@@ -80,9 +81,10 @@ pub mod knowledge_manager {
         name: String,
         symbol: String,
         uri: String,
+        weights_signature: [u8; 64],
         seller_fee_basis_points: u16
     ) -> Result<()> {
-        instructions::mint_to_task(ctx, name, symbol, uri, seller_fee_basis_points)?;
+        instructions::mint_to_task(ctx, name, symbol, uri, weights_signature, seller_fee_basis_points)?;
         Ok(())
     }
 
