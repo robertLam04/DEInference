@@ -4,9 +4,9 @@ use crate::state::ProgramState;
 
 #[derive(Accounts)]
 pub struct Initialize<'info> {
-    // space = account disc (8) + pubkey (32) + vec size (4) + tree_count (2) + max_trees (1) * tree info (64) + inf_req_counter (2)
+    // space = account disc (8) + pubkey (32) + vec size (4) + tree_count (2) + max_trees (1) * tree info (64)
     #[account(
-        init, payer = payer, space = 48 + 1 * 66, seeds = [b"knowledge"], bump
+        init, payer = payer, space = 46 + 1 * 66, seeds = [b"knowledge"], bump
     )]
     pub program_state: Account<'info, ProgramState>,
 
@@ -24,7 +24,6 @@ pub fn initialize(ctx: Context<Initialize>) -> Result<()> {
         .map_err(|_| ProgramError::InvalidArgument)?;
     program_state.creator = creator_pbk;
     program_state.tree_count = 0;
-    program_state.inf_req_counter = 0;
 
     Ok(())
 }

@@ -10,14 +10,14 @@ import { MPL_TOKEN_METADATA_PROGRAM_ID, createNft } from '@metaplex-foundation/m
 import { percentAmount, PublicKey as UmiPK, generateSigner, signerIdentity, createSignerFromKeypair, KeypairSigner, request } from '@metaplex-foundation/umi';
 import { createUmi } from '@metaplex-foundation/umi-bundle-defaults';
 import { dasApi } from '@metaplex-foundation/digital-asset-standard-api';
-import { PublicKey, Keypair, TransactionConfirmationStrategy, Transaction, sendAndConfirmTransaction, TransactionSignature, SystemProgram, CreateAccountParams, LAMPORTS_PER_SOL, TransactionInstruction } from "@solana/web3.js";
+import { PublicKey, Keypair, TransactionConfirmationStrategy, Transaction, sendAndConfirmTransaction, TransactionSignature, SystemProgram } from "@solana/web3.js";
 import { assert } from "chai";
-import { ChangeLogEventV1, compressionAccountTypeBeet, ConcurrentMerkleTreeAccount, createAllocTreeIx, deserializeChangeLogEventV1, ValidDepthSizePair } from "@solana/spl-account-compression";
+import { ChangeLogEventV1, ConcurrentMerkleTreeAccount, createAllocTreeIx, deserializeChangeLogEventV1, ValidDepthSizePair } from "@solana/spl-account-compression";
 import {  } from "@coral-xyz/anchor"
 import { bs58 } from "@coral-xyz/anchor/dist/cjs/utils/bytes";
 import { base58 } from "@metaplex-foundation/umi/serializers";
 import * as borsh from "borsh";
-import fs from "fs";
+import { execSync } from "child_process";
 
 describe("deinference", () => {
 
@@ -32,14 +32,17 @@ describe("deinference", () => {
       lastValidBlockHeight: lastValidBlockHeight
     }
 
-    return await connection.confirmTransaction(confirmationStrategy, 'finalized');
+    return await connection.confirmTransaction(confirmationStrategy, 'confirmed');
   }
   
   let programStateAccountInfo;
   let programStateData;
+  let requestStatePda;
+  let requestStateData;
   let collectionMetadataAccount: PublicKey;
   let treeAccount: ConcurrentMerkleTreeAccount;
   let collection_mint: KeypairSigner;
+  let request_id: number = 0;
 
   // Configure the client to use the local cluster.
   const provider = anchor.AnchorProvider.env();
@@ -114,6 +117,12 @@ describe("deinference", () => {
   }
 
   before(async () => {
+    // Fund wallet (LOCAL NET ONLY)
+    console.log('Running fund script...');
+    execSync('anchor run fund -- 2gUrmvYsLTpXB5VwjP2ZpXD4kY4HWRP89aDzQQ7TKbwh 5', {
+      stdio: 'inherit', // Pass output to the terminal
+    });
+
     // Close state accounts if they already exist
     const programStateAccountInfo = await provider.connection.getAccountInfo(programStatePda);
     if (programStateAccountInfo) {
@@ -133,10 +142,10 @@ describe("deinference", () => {
       }).signers([wallet.payer]).rpc({ commitment: 'confirmed'});
     } 
 
-    const inf_req_counter = Buffer.alloc(2);
-    inf_req_counter.writeUInt16LE(0);
-    let [requestStatePda] = PublicKey.findProgramAddressSync(
-      [Buffer.from("request"), new PublicKey(wallet.payer.publicKey).toBuffer(), inf_req_counter], // Same seed as in the Rust program
+    const request_id_buffer = Buffer.alloc(2);
+    request_id_buffer.writeUInt16LE(request_id);
+    [requestStatePda] = PublicKey.findProgramAddressSync(
+      [Buffer.from("request"), request_id_buffer], // Same seed as in the Rust program
       program.programId
     );
 
@@ -203,7 +212,6 @@ describe("deinference", () => {
       ],
       new PublicKey(MPL_TOKEN_METADATA_PROGRAM_ID)
     )[0];
-
   });
 
   it("Initializes the program state pda", async () => {
@@ -233,7 +241,7 @@ describe("deinference", () => {
 
     assert.strictEqual(
       programStateAccountInfo.data.length,
-      48 + 1 * 66, // space = account disc (8) inf_req_counter (2) + pubkey (32) + vec size (4) + tree count (2) + max_#_trees * tree info (66)
+      46 + 1 * 66, // space = account disc (8) + pubkey (32) + vec size (4) + tree count (2) + max_#_trees * tree info (66)
       "tree_state account data size is incorrect"
     );
   });
@@ -345,8 +353,6 @@ describe("deinference", () => {
   });
 
   it("Mints an NFT to an existing merkle tree and task (collection)", async () => {
-
-    //const fetchedNFT = await fetchDigitalAsset(umi, collection_mint.publicKey);
 
     const editionAccount = PublicKey.findProgramAddressSync(
       [
@@ -482,12 +488,13 @@ describe("deinference", () => {
     console.log("data length:", serializedData.length);
 
     const listener = program.addEventListener("request", (event, slot) => {
+      assert.strictEqual(event.requestId, 0),
       assert.deepEqual(event.taskCollection, new PublicKey(collection_mint.publicKey));
       assert.ok(event.status.pending);
       assert.notOk(event.status.aggregated);
     });
 
-    const tx = await program.methods.postRequest(Buffer.from(serializedData)).accounts({
+    const tx = await program.methods.postRequest(request_id, Buffer.from(serializedData)).accounts({
       user: wallet.publicKey, // Use our wallet here as the user for simplicity (change later)
       collectionMint: collection_mint.publicKey
     }).signers([wallet.payer]).rpc({commitment: 'confirmed'});
@@ -495,9 +502,25 @@ describe("deinference", () => {
 
     await program.removeEventListener(listener);
     
-    programStateData = await program.account.programState.fetch(programStatePda);
-  
-    assert.strictEqual(programStateData.infReqCounter, 1);
+    requestStateData = await program.account.inferenceRequest.fetch(requestStatePda);
+    assert.strictEqual(requestStateData.requestId, request_id);
+  });
+
+  it("Submits a prediction to an inference request with an already registered model", async () => {
+
+    const model_weights = anchor.utils.bytes.utf8.encode(metadata.uri);
+    const prediction = anchor.utils.bytes.utf8.encode("example_pred");
+
+    const tx = await program.methods.
+      submitPred(request_id, Array.from(model_weights), Buffer.from(prediction)).
+      accounts({
+        modelOwner: wallet.publicKey,
+        collectionMint: collection_mint.publicKey
+    }).signers([wallet.payer]).rpc({commitment: "confirmed"});
+    await confirmTransaction(tx);
+
+    requestStateData = await program.account.inferenceRequest.fetch(requestStatePda);
+    console.log("request data pred results:", requestStateData.results);
 
   });
 });

@@ -9,5 +9,7 @@ pub enum Errors {
     #[msg("Model not found.")]
     ModelNotFound,
     #[msg("Model count for this task must be greater than the minimum")]
-    ModelCountTooLow
+    ModelCountTooLow,
+    #[msg("Invalid status")]
+    InvalidStatus
 }
