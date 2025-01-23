@@ -88,13 +88,18 @@ pub mod knowledge_manager {
         Ok(())
     }
 
-    pub fn post_request(ctx:Context<PostRequest>, request_id: u16, data: Vec<u8>) -> Result<()> {
-        instructions::post_request(ctx, request_id, data)?;
+    pub fn post_request(ctx:Context<PostRequest>, request_id: u16, data: Vec<u8>, required_predictions: u16) -> Result<()> {
+        instructions::post_request(ctx, request_id, data, required_predictions)?;
         Ok(())
     }
 
     pub fn submit_pred(ctx:Context<SubmitPred>, request_id: u16, weights_hash: [u8; 32], prediction: Vec<u8>) -> Result<()> {
         instructions::submit_pred(ctx, request_id, weights_hash, prediction)?;
+        Ok(())
+    }
+
+    pub fn aggregate(ctx:Context<Aggregate>, request_id: u16, algorithm: AggregationAlgorithm) -> Result<()> {
+        instructions::aggregate(ctx, request_id, algorithm)?;
         Ok(())
     }
 

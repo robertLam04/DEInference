@@ -136,7 +136,7 @@ pub fn mint_to_task(ctx: Context<MintToTask>, name: String, symbol: String, weig
         weights_hash: weights_clone.as_bytes().try_into().expect("URI must be 32 bytes"),
         tree_address: *ctx.accounts.tree.key,
         leaf_index: leaf_index,
-        reputation: 0 // inital value
+        reputation: 1 // inital value
     };
 
     task_data.models.push(model);

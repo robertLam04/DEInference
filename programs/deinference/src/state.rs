@@ -1,5 +1,5 @@
 use anchor_lang::prelude::*;
-use strum_macros::ToString;
+use strum_macros::Display;
 use crate::error::Errors;
 
 #[account]
@@ -42,7 +42,7 @@ pub struct TaskData {
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone)]
 pub struct ModelData {
-    pub weights_hash: [u8; 32], // unique identifier (Need to store model owner too later)
+    pub weights_hash: [u8; 32], // unique identifier
     pub tree_address: Pubkey, // tree where this model is stored
     pub leaf_index: u16,
     pub reputation: u8
@@ -56,19 +56,20 @@ impl TaskData {
 
 #[account]
 pub struct InferenceRequest {          
-    pub request_id: u16,     
-    pub user: Pubkey,      
+    pub request_id: u16,
+    pub user: Pubkey,
     pub task_collection: Pubkey,      // associated task
     pub input_data: Vec<u8>,         // input data
     pub posted_at: i64,             // Timestamp of submission
+    pub required_predictions: u16,       // Number of predictions required
     pub status: RequestStatus,         // Status of the request
-    pub results: Vec<ResultEntry>,     // Results submitted by nodes (may need to move this to off chain storage)
+    pub results: Vec<ResultEntry>,     // Results submitted by nodes
 }
 
-#[derive(AnchorSerialize, AnchorDeserialize, Clone, PartialEq, Eq, ToString)]
+#[derive(AnchorSerialize, AnchorDeserialize, Clone, PartialEq, Eq)]
+#[derive(Display)]
 pub enum RequestStatus {
     Pending,
-    Validated,
     Aggregated,
     Completed,
 }
