@@ -11,7 +11,8 @@ import { percentAmount, PublicKey as UmiPK, generateSigner, signerIdentity, crea
 import { createUmi } from '@metaplex-foundation/umi-bundle-defaults';
 import { dasApi } from '@metaplex-foundation/digital-asset-standard-api';
 import { PublicKey, Keypair, TransactionConfirmationStrategy, Transaction, sendAndConfirmTransaction, TransactionSignature, SYSVAR_INSTRUCTIONS_PUBKEY,
-  Ed25519Program } from "@solana/web3.js";
+  Ed25519Program, 
+  LAMPORTS_PER_SOL} from "@solana/web3.js";
 import { assert } from "chai";
 import { ChangeLogEventV1, ConcurrentMerkleTreeAccount, createAllocTreeIx, deserializeChangeLogEventV1, ValidDepthSizePair } from "@solana/spl-account-compression";
 import {  } from "@coral-xyz/anchor"
@@ -20,6 +21,7 @@ import { base58 } from "@metaplex-foundation/umi/serializers";
 import * as borsh from "borsh";
 import { execSync } from "child_process";
 import nacl from 'tweetnacl';
+import { matchesGlob } from "path";
 
 describe("deinference", () => {
 
@@ -78,6 +80,16 @@ describe("deinference", () => {
     ],
     program.programId
   )
+
+  let editionAccount = PublicKey.findProgramAddressSync(
+    [
+      Buffer.from('metadata', 'utf8'),
+      new PublicKey(MPL_TOKEN_METADATA_PROGRAM_ID).toBuffer(),
+      new PublicKey(collection_mint.publicKey).toBuffer(),
+      Buffer.from('edition', 'utf8'),
+    ],
+    new PublicKey(MPL_TOKEN_METADATA_PROGRAM_ID)
+  )[0];
 
   // Create merkle tree account
   const tree = Keypair.generate();
@@ -216,7 +228,7 @@ describe("deinference", () => {
     )[0];
   });
 
-  it("Initializes the program state pda", async () => {
+  it.only("Initializes the program state pda", async () => {
     
     // Call the initialize function
     const tx = await program.methods.initialize()
@@ -248,7 +260,7 @@ describe("deinference", () => {
     );
   });
 
-  it("Creates an empty merkle tree", async () => {
+  it.only("Creates an empty merkle tree", async () => {
 
     const tx = await program.methods
     .createTree(maxDepthSizePair.maxDepth, maxDepthSizePair.maxBufferSize)
@@ -338,7 +350,7 @@ describe("deinference", () => {
     const tx = await program.methods
       .createTask().accounts({
         collectionMint: collection_mint.publicKey,
-        metadata: collectionMetadataAccount,
+        //metadata: collectionMetadataAccount,
         payer: wallet.publicKey,
       })
       .signers([wallet.payer]) 
@@ -350,22 +362,11 @@ describe("deinference", () => {
     // Fetch the task_data account and assert it was initialized
     const taskDataAccountInfo = await provider.connection.getAccountInfo(taskDataPda);
     const taskDataAccount = await program.account.taskData.fetch(taskDataPda);
-    assert.strictEqual(taskDataAccountInfo.data.length, 117);
+    assert.strictEqual(taskDataAccountInfo.data.length, 330);
     assert.ok(taskDataAccount.collectionMint.equals(new PublicKey(collection_mint.publicKey)));
   });
 
   it("Mints an NFT to an existing merkle tree and task (collection)", async () => {
-
-    const editionAccount = PublicKey.findProgramAddressSync(
-      [
-        Buffer.from('metadata', 'utf8'),
-        new PublicKey(MPL_TOKEN_METADATA_PROGRAM_ID).toBuffer(),
-        new PublicKey(collection_mint.publicKey).toBuffer(),
-        Buffer.from('edition', 'utf8'),
-      ],
-      new PublicKey(MPL_TOKEN_METADATA_PROGRAM_ID)
-    )[0];
-
     const signature = nacl.sign.detached(Buffer.from(metadata.uri), wallet.payer.secretKey);
     const ed25519Instruction = Ed25519Program.createInstructionWithPublicKey({
       publicKey: wallet.payer.publicKey.toBytes(),
@@ -404,7 +405,7 @@ describe("deinference", () => {
       console.log("Event slot:", slot);
   
       assert.strictEqual(event.leafIndex, 0);
-      assert.strictEqual(event.reputation, 0);
+      assert.strictEqual(event.reputation, 1);
       assert.deepEqual(event.treeAddress, tree.publicKey);
     });
 
@@ -503,7 +504,9 @@ describe("deinference", () => {
       assert.notOk(event.status.aggregated);
     });
 
-    const tx = await program.methods.postRequest(request_id, Buffer.from(serializedData)).accounts({
+    const required_predictions = 1;
+
+    const tx = await program.methods.postRequest(request_id, Buffer.from(serializedData), required_predictions).accounts({
       user: wallet.publicKey, // Use our wallet here as the user for simplicity (change later)
       collectionMint: collection_mint.publicKey
     }).signers([wallet.payer]).rpc({commitment: 'confirmed'});
@@ -518,10 +521,17 @@ describe("deinference", () => {
   it("Submits a prediction to an inference request with an already registered model", async () => {
 
     const model_weights = anchor.utils.bytes.utf8.encode(metadata.uri);
-    const prediction = anchor.utils.bytes.utf8.encode("example_pred");
+    //const prediction = anchor.utils.bytes.utf8.encode("example_pred");
+    const number = 12.25; // Example number
 
+    // Create a 4 byte since smart-contract expects 32 bit float
+    const buffer = Buffer.alloc(4);
+    buffer.writeFloatBE(number, 0);
+
+    console.log(buffer.readFloatBE());
+      
     const tx = await program.methods.
-      submitPred(request_id, Array.from(model_weights), Buffer.from(prediction)).
+      submitPred(request_id, Array.from(model_weights), buffer).
       accounts({
         modelOwner: wallet.publicKey,
         collectionMint: collection_mint.publicKey
@@ -530,6 +540,174 @@ describe("deinference", () => {
 
     requestStateData = await program.account.inferenceRequest.fetch(requestStatePda);
     console.log("request data pred results:", requestStateData.results);
+
+  });
+
+  it.only("Aggregates the results for an inference request", async () => {
+    // Create new nft collection
+    const task_account = generateSigner(umi);
+
+    // Create collection mint
+    const create_collection_nft_tx = await createNft(umi, {
+      mint: task_account,
+      sellerFeeBasisPoints: percentAmount(0),
+      name: 'TEST-COLLECTION',
+      uri: "https://raw.githubusercontent.com/robertLam04/DEInference/main/example_task.json",
+      isCollection: true
+    }).sendAndConfirm(umi);
+    const create_collection_nft_sig = base58.deserialize(create_collection_nft_tx.signature)[0];
+    await confirmTransaction(create_collection_nft_sig);
+
+    const update_nft_tx = await updateV1(umi, {
+      mint: task_account.publicKey,
+      newUpdateAuthority: tree_owner.toBase58() as UmiPK
+    }).sendAndConfirm(umi);
+    const update_nft_sig = base58.deserialize(update_nft_tx.signature)[0];
+    await confirmTransaction(update_nft_sig);
+
+    const init_task_tx = await program.methods
+      .createTask().accounts({
+        collectionMint: task_account.publicKey,
+        payer: wallet.publicKey,
+      })
+      .signers([wallet.payer]) 
+    .rpc({commitment: 'confirmed'});
+    await confirmTransaction(init_task_tx);
+
+    const collection_nft_metatdata_acc = PublicKey.findProgramAddressSync(
+      [
+        Buffer.from("metadata", "utf8"),
+        new PublicKey(MPL_TOKEN_METADATA_PROGRAM_ID).toBuffer(),
+        new PublicKey(task_account.publicKey).toBuffer(),
+      ],
+      new PublicKey(MPL_TOKEN_METADATA_PROGRAM_ID)
+    )[0];
+
+    const collection_nft_edition_acc = PublicKey.findProgramAddressSync(
+      [
+        Buffer.from('metadata', 'utf8'),
+        new PublicKey(MPL_TOKEN_METADATA_PROGRAM_ID).toBuffer(),
+        new PublicKey(task_account.publicKey).toBuffer(),
+        Buffer.from('edition', 'utf8'),
+      ],
+      new PublicKey(MPL_TOKEN_METADATA_PROGRAM_ID)
+    )[0];
+
+    // Create new inference request
+
+    class RequestData {
+      param1: number;
+      param2: number;
+      name: string;
+      constructor(fields) {
+        this.param1 = fields.param1;
+        this.param2 = fields.param2;
+        this.name = fields.name;
+      }
+    }
+    
+    // Define the schema for Borsh serialization
+    const schema = new Map([
+      [
+        RequestData,
+        {
+          kind: "struct",
+          fields: [
+            ["param1", "u32"],
+            ["param2", "u32"],
+            ["name", "string"],
+          ],
+        },
+      ],
+    ]);
+    
+    const requestData = new RequestData({
+      param1: 1234,
+      param2: 1234,
+      name: 'test',
+    });
+    
+    const serializedData = borsh.serialize(schema, requestData);
+    const request_id = 2
+
+    const required_predictions = 3
+    const inference_request_tx = await program.methods.postRequest(request_id, Buffer.from(serializedData), required_predictions).accounts({
+      user: wallet.publicKey,
+      collectionMint: task_account.publicKey
+    }).signers([wallet.payer]).rpc({commitment: 'confirmed'});
+    await confirmTransaction(inference_request_tx);
+
+    // Setup  models
+    for (let i = 0; i < 3; i++) {
+      const account = Keypair.generate();
+      const airdrop_tx = await connection.requestAirdrop(account.publicKey, LAMPORTS_PER_SOL);
+      await confirmTransaction(airdrop_tx);
+
+      const model_metadata = {
+        uri: `${i.toString().padStart(32, '0')}`, // Pad `i` with leading zeros to make it 32 bytes
+        name: `TEST-NFT-${i}`,
+        symbol: `${i}`
+      };
+    
+      const signature = nacl.sign.detached(Buffer.from(model_metadata.uri), account.secretKey);
+      const ed25519Instruction = Ed25519Program.createInstructionWithPublicKey({
+        publicKey: account.publicKey.toBytes(),
+        message: Buffer.from(model_metadata.uri),
+        signature: signature
+      });
+
+      const mint_tx = await program.methods
+        .mintToTask(model_metadata.name, model_metadata.symbol, model_metadata.uri, Array.from(signature), 0)
+        .accounts({
+          payer: account.publicKey,
+          treeAuth: tree_config,
+          modelOwner: account.publicKey,
+          tree: tree.publicKey,
+          collectionMint: task_account.publicKey,
+          collectionMetadata: collection_nft_metatdata_acc,
+          bubblegumSigner: bubblegumSigner,
+          editionAccount:  collection_nft_edition_acc,
+        }).preInstructions([ed25519Instruction]).signers([account])
+      .rpc({ commitment: 'confirmed' });
+      await confirmTransaction(mint_tx);
+        
+      const predictionValue = 12.25 + i; // Example predictions
+      const predictionBuffer = Buffer.alloc(4);
+      predictionBuffer.writeFloatBE(predictionValue, 0);
+      console.log("PREDICTION BUFFER:", predictionBuffer.toString())
+
+      const predict_tx = await program.methods
+        .submitPred(
+          request_id,
+          Array.from(Buffer.from(model_metadata.uri)),
+          predictionBuffer
+        )
+        .accounts({
+          modelOwner: wallet.publicKey,
+          collectionMint: task_account.publicKey,
+        })
+        .signers([wallet.payer])
+      .rpc({ commitment: "confirmed" });
+      await confirmTransaction(predict_tx);
+    }
+
+    console.log("Models successfully setup");
+
+    const algorithm = { weightedMedian: {} };
+    const tx = await program.methods.
+      aggregate(request_id, algorithm).
+      accounts({
+        user: wallet.publicKey
+      }).signers([wallet.payer]).rpc({commitment: "confirmed"});
+    await confirmTransaction(tx);
+
+    const txDetails = await program.provider.connection.getTransaction(tx, {
+      maxSupportedTransactionVersion: 0,
+      commitment: "confirmed",
+    });
+  
+    const logs = txDetails?.meta?.logMessages || null;
+    console.log(logs);
 
   });
 });

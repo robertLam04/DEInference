@@ -34,6 +34,11 @@ pub fn submit_pred(ctx: Context<SubmitPred>, request_id: u16, weights_hash: [u8;
     require!(task_data.has_model(&weights_hash), Errors::ModelNotFound);
     require_eq!(request_state.request_id, request_id);
     require_eq!(request_state.status.clone(), RequestStatus::Pending, Errors::InvalidStatus);
+    require!(
+        !request_state.results.iter().any(|entry| entry.weights_hash == weights_hash),
+        Errors::DuplicatePrediction
+    );
+    
 
     let result = ResultEntry {
         weights_hash: weights_hash,

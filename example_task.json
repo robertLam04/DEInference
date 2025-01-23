@@ -1,6 +1,6 @@
 {
   "description": "This is an example task description.",
-  "format": {
+  "input": {
     "fields": [
       {
         "name": "param1",
@@ -15,5 +15,13 @@
         "type": "bool"
       }
     ]
-  }
+  },
+  "model_output": {
+    "type": "float",
+    "range": {
+      "lower": 0,
+      "upper": 1
+    }
+  },
+  "aggregation": "median"
 }

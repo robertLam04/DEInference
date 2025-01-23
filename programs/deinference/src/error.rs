@@ -22,4 +22,10 @@ pub enum Errors {
     InvalidEd25519Instruction,
     #[msg("Missing Ed25519 instruction provided to verify instruction")]
     MissingEd25519Instruction,
+    #[msg("Not enough predictions have been submitted to perform aggregation")]
+    NotEnoughPredictions,
+    #[msg("This model has already submitted a prediction for this task")]
+    DuplicatePrediction,
+    #[msg("Total reputation of models must be greater than zero")]
+    ZeroTotalReputation
 }

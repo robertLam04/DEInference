@@ -45,7 +45,7 @@ pub struct PostRequest<'info> {
     pub system_program: Program<'info, System>,
 }
 
-pub fn post_request(ctx: Context<PostRequest>, request_id: u16, request_data: Vec<u8>) -> Result<()> {
+pub fn post_request(ctx: Context<PostRequest>, request_id: u16, request_data: Vec<u8>, required_predictions: u16) -> Result<()> {
     let task_data = &ctx.accounts.task_data;
 
     // Verify the collection mint matches the task data account
@@ -53,10 +53,6 @@ pub fn post_request(ctx: Context<PostRequest>, request_id: u16, request_data: Ve
         task_data.collection_mint,
         ctx.accounts.collection_mint.key()
     );
-
-    // Ensure some models have been added to this task
-    const MIN: u16 = 1;
-    require!(task_data.model_count >= MIN, Errors::ModelCountTooLow);
 
     let clock = Clock::get()?;
     let posted_at = clock.unix_timestamp;
@@ -77,6 +73,7 @@ pub fn post_request(ctx: Context<PostRequest>, request_id: u16, request_data: Ve
     request_state.task_collection = *ctx.accounts.collection_mint.key;
     request_state.request_id = request_id;
     request_state.user = *ctx.accounts.user.key;
+    request_state.required_predictions = required_predictions;
 
     Ok(())
 }
