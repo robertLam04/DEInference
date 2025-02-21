@@ -7,8 +7,7 @@
     },
     {
       "name": "param2",
-      "type": "string",
-      "max_length": 256
+      "type": "string"
     },
     {
       "name": "flag",
