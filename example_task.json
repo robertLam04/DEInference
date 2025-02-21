@@ -3,15 +3,11 @@
   "inputs": [
     {
       "name": "param1",
-      "type": "u64"
+      "type": "u32"
     },
     {
       "name": "param2",
-      "type": "string"
-    },
-    {
-      "name": "flag",
-      "type": "bool"
+      "type": "u32"
     }
   ],
   "output": {
